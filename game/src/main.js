@@ -1,8 +1,9 @@
 // main.js — Hornbill Run: boot, the chase camera, the mission loop and
 // the landing judge. Fly the eight rings in order, then land on the
-// strip: slow, gentle and lined up, or she bounces — or worse.
+// strip: slow, gentle and lined up, or she bounces — or worse. The
+// scene is drawn by the game's own renderer (render3d.js).
 
-import * as THREE from 'three';
+import { Renderer, Vec3 } from './render3d.js';
 import { World } from './world.js';
 import { Aircraft } from './aircraft.js';
 import { RingCourse } from './rings.js';
@@ -13,14 +14,17 @@ import { readShotRequest, stageShot } from './shots.js';
 import { RUNWAY } from './random.js';
 
 const canvas = document.getElementById('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+const renderer = new Renderer(canvas);
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.5, 9000);
+const camera = {
+  pos: new Vec3(650, 110, 1250),
+  target: new Vec3(650, 96, 1100),
+  fovY: (62 * Math.PI) / 180,
+  near: 0.5,
+  far: 9000,
+};
 
-const world = new World(scene);
+const world = new World(renderer);
 const input = new Input();
 const hud = new Hud();
 const audio = new GameAudio();
@@ -29,8 +33,8 @@ const game = {
   phase: 'title', // title | fly | won | crashed | shot
   elapsed: 0,
   score: 0,
-  plane: new Aircraft(scene),
-  course: new RingCourse(scene),
+  plane: new Aircraft(renderer),
+  course: new RingCourse(renderer),
   showEnd: null, // wired below, shots.js calls it for the landed scene
 };
 
@@ -68,8 +72,7 @@ game.showEnd = showEnd;
 
 function resetRun() {
   game.plane.reset();
-  scene.remove(game.course.group);
-  game.course = new RingCourse(scene);
+  game.course = new RingCourse(renderer);
   game.elapsed = 0;
   game.score = 0;
   game.finalScore = 0;
@@ -124,38 +127,34 @@ function judgeTouchdown() {
   audio.bounceWarn();
 }
 
-const _fwd = new THREE.Vector3();
-const _desired = new THREE.Vector3();
-const _look = new THREE.Vector3();
+const _fwd = new Vec3();
+const _desired = new Vec3();
+const _look = new Vec3();
 
 function chaseCamera(dt, snap = false) {
   const plane = game.plane;
   plane.forwardVector(_fwd);
   _desired.copy(plane.position).addScaledVector(_fwd, -23);
   _desired.y += 4.4;
-  if (snap || dt === 0) camera.position.copy(_desired);
-  else camera.position.lerp(_desired, 1 - Math.exp(-dt * 4.5));
+  if (snap || dt === 0) camera.pos.copy(_desired);
+  else camera.pos.lerp(_desired, 1 - Math.exp(-dt * 4.5));
   _look.copy(plane.position).addScaledVector(_fwd, 34);
   _look.y += 1.0;
-  camera.lookAt(_look);
+  camera.target.copy(_look);
 }
 
 function titleCamera(elapsed) {
   const plane = game.plane;
   const a = elapsed * 0.12;
-  camera.position.set(
+  camera.pos.set(
     plane.position.x + Math.sin(a) * 30,
     plane.position.y + 9,
     plane.position.z + Math.cos(a) * 30,
   );
-  camera.lookAt(plane.position.x, plane.position.y + 1, plane.position.z);
+  camera.target.set(plane.position.x, plane.position.y + 1, plane.position.z);
 }
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+window.addEventListener('resize', () => renderer.resize());
 window.addEventListener('pointerdown', () => {
   if (game.phase === 'title') beginFlight();
   else audio.ensureStarted();
@@ -170,12 +169,23 @@ if (shotName) {
   chaseCamera(0, true);
 }
 
-const clock = new THREE.Clock();
+function render() {
+  const draws = [];
+  world.addDraws(draws);
+  game.plane.addDraws(draws);
+  game.course.addDraws(draws);
+  renderer.frame(camera, draws);
+}
+
+const startMs = performance.now();
+let lastMs = startMs;
 
 function frame() {
   requestAnimationFrame(frame);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const elapsedTotal = clock.elapsedTime;
+  const nowMs = performance.now();
+  const dt = Math.min((nowMs - lastMs) / 1000, 0.05);
+  lastMs = nowMs;
+  const elapsedTotal = (nowMs - startMs) / 1000;
 
   if (game.phase === 'title') {
     world.update(dt, elapsedTotal);
@@ -213,7 +223,7 @@ function frame() {
   } else if (game.phase === 'shot') {
     world.update(0, 2.2);
     hud.update(0, game.plane, game.course, game.elapsed, game.score);
-    renderer.render(scene, camera);
+    render();
     shotFrames++;
     if (shotFrames === 12) window.__shotReady = true;
     input.endFrame();
@@ -222,7 +232,7 @@ function frame() {
 
   hud.update(dt, game.plane, game.course, game.elapsed, game.score);
   audio.setEngine(game.plane.throttle, game.phase === 'fly');
-  renderer.render(scene, camera);
+  render();
   input.endFrame();
 }
 

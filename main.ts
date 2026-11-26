@@ -1,8 +1,8 @@
 // Hornbill Run — hand-in program (Node 22, standard library only).
 //
 // The game itself is the static site in game/: game/index.html and the ES
-// modules under game/src/, flying over a three.js island vendored under
-// game/vendor/, loading nothing from the network. This program delivers
+// modules under game/src/, drawn by the game's own hand-written WebGL
+// renderer (game/src/render3d.js) and loading nothing from the network. This program delivers
 // it: it copies game/ and screenshots/ from beside this file into the
 // output directory and writes dossier.json there with buildDossier from
 // the vendored make.fun library, so the judge reads exactly the
